@@ -1,0 +1,40 @@
+story_validation:
+  story_id: ""
+  file_path: ""
+  validation_date: ""
+  
+  file_checks:
+    file_exists: false
+    file_readable: false
+    proper_naming: false
+    reasonable_size: false
+  
+  content_checks:
+    context_section: false
+    implementation_section: false
+    acceptance_criteria: false
+    story_id_present: false
+  
+  dependency_analysis:
+    dependencies_found: []
+    dependencies_met: []
+    dependencies_pending: []
+    circular_dependency: false
+  
+  context_sufficiency:
+    technical_context: false
+    architecture_guidance: false
+    implementation_approach: false
+    code_patterns: false
+  
+  overall_assessment:
+    status: "" # PASS, WARN, FAIL
+    issues: []
+    recommendations: []
+    ready_for_development: false
+  
+  validation_summary:
+    total_checks: 0
+    passed_checks: 0
+    failed_checks: 0
+    warning_checks: 0

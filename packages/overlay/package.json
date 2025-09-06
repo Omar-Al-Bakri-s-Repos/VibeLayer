@@ -23,12 +23,12 @@
     "@vibelayer/shared": "workspace:*",
     "pixi.js": "^8.0.0",
     "regl": "^2.1.0",
-    "lottie-web": "^5.12.2",
-    "@lottiefiles/lottie-interactivity": "^1.6.3"
+    "lottie-web":"5.13.0",
+    "@lottiefiles/lottie-interactivity": "^1.6.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
-    "@types/lottie-web": "^5.7.2",
+    "@lottie-animation-community/lottie-types": "^1.2.0",
     "eslint": "^8.57.0",
     "rimraf": "^5.0.5",
     "tsup": "^8.0.0",
