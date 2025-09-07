@@ -110,3 +110,16 @@ next-env.d.ts
 
 # Doppler
 .doppler.yaml
+
+# Development/Build directories
+.depot/
+.cursor/
+.build/
+docs/
+
+# BMAD workflow
+.bmad-core/
+.serena/
+
+# Claude
+.claude/
