@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # Control Panel - Main web interface
+  control-panel:
+    build:
+      context: .
+      dockerfile: apps/control-panel/Dockerfile
+      args:
+        - NODE_ENV=development
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:4000
+      - DATABASE_URL=${DATABASE_URL}
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+    volumes:
+      - ./apps/control-panel:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - vibelayer-network
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=vibelayer
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-vibelayer_dev}
+      - POSTGRES_DB=vibelayer
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - vibelayer-network
+    restart: unless-stopped
+
+  # Redis for caching and real-time features
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - vibelayer-network
+    restart: unless-stopped
+
+  # Development container with all tools
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - pnpm-store:/app/.pnpm-store
+    environment:
+      - NODE_ENV=development
+    command: pnpm dev
+    ports:
+      - "3001:3000"  # Alternative port for full monorepo dev
+      - "4000:4000"  # API port
+      - "5000:5000"  # WebSocket port
+    networks:
+      - vibelayer-network
+    depends_on:
+      - postgres
+      - redis
+
+networks:
+  vibelayer-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  pnpm-store:

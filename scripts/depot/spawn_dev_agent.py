@@ -65,28 +65,32 @@ class VibeLayerDevAgentSpawner:
         # Create development prompt for the agent
         dev_prompt = self._create_development_prompt(story_content, story_id)
         
-        # Build Depot command for development agent
+        # Get GitHub token from Doppler
+        github_token = self._get_github_token()
+        
+        # Build Depot command for development agent with proper configuration
         cmd = [
             "depot", "claude",
             "--session-id", session_id,
-            "--repository", "VibeLayer",
-            "--branch", os.environ.get("GITHUB_REF_NAME", "main"),
-            "--allowedTools", "Bash,GitHub,FileSystem",
-            dev_prompt
+            "--repository", "https://github.com/OmarA1-Bakri/VibeLayer",
+            "--branch", os.environ.get("GITHUB_REF_NAME", "main")
         ]
         
         try:
             print(f"Spawning development agent for story: {story_id}")
             print(f"Session ID: {session_id}")
             
-            # Execute Depot command
+            # Execute Depot command with prompt as stdin
             result = subprocess.run(
                 cmd,
+                input=dev_prompt,  # Pass prompt via stdin
                 capture_output=True,
                 text=True,
                 timeout=1800,  # 30 minutes timeout
                 cwd=self.project_root,
-                env={**os.environ, "PATH": f"/home/omar/.depot/bin:{os.environ.get('PATH', '')}"}
+                env={**os.environ, 
+                     "PATH": f"/home/omar/.depot/bin:{os.environ.get('PATH', '')}",
+                     "GITHUB_TOKEN": github_token if github_token else ""}
             )
             
             if result.returncode == 0:
@@ -133,30 +137,78 @@ class VibeLayerDevAgentSpawner:
     def _create_development_prompt(self, story_content: str, story_id: str) -> str:
         """
         Create a focused development prompt for the agent based on the story
-        The story contains all necessary context, architecture, and implementation details
+        Uses the same format as the dev.md agent persona
         """
-        return f"""You are a Development Agent working on VibeLayer story: {story_id}
+        return f"""/dev
 
-STORY CONTEXT:
+You are James (Full Stack Developer 💻), Expert Senior Software Engineer & Implementation Specialist.
+
+STORY TO IMPLEMENT:
 {story_content}
 
-INSTRUCTIONS:
-1. Read and understand the complete story context above
-2. The story contains all necessary implementation details, architecture guidance, and context
-3. Implement the feature/changes exactly as specified in the story
-4. Follow VibeLayer's existing code conventions and patterns
-5. Create/modify files as needed to complete the implementation
-6. Test your implementation to ensure it works correctly
-7. Commit your changes with a clear commit message referencing the story ID
+CRITICAL INSTRUCTIONS:
+1. You are to execute the *develop-story command immediately
+2. Follow this order-of-execution EXACTLY:
+   - Read (first or next) task
+   - Implement Task and its subtasks
+   - Write tests
+   - Execute validations
+   - Only if ALL pass, then update the task checkbox with [x]
+   - Update story section File List to ensure it lists any new or modified or deleted source file
+   - Repeat order-of-execution until complete
 
-IMPORTANT:
-- You only have access to this story context - no other artifacts
-- The story is self-contained with all necessary information
-- Focus on implementing exactly what the story describes
-- Use VibeLayer's existing TypeScript, React, Next.js patterns
-- Follow the monorepo structure with proper package dependencies
+3. Story has ALL info you need. NEVER load PRD/architecture/other docs files unless explicitly directed in story notes.
+4. ALWAYS check current folder structure before starting your story tasks, don't create new working directory if it already exists.
+5. ONLY update story file Dev Agent Record sections (checkboxes/Debug Log/Completion Notes/Change Log/File List)
+6. When all Tasks and Subtasks marked [x] and tests pass, set story status to 'Ready for Review'
 
-Begin implementation of story {story_id}:"""
+DEVELOPMENT STANDARDS:
+- Write REAL code, not placeholders or stubs
+- Use pnpm for package management
+- Follow TypeScript/Next.js 15 conventions
+- Create actual files with working implementations
+- Test everything you implement
+
+Start implementing Story {story_id} NOW using the *develop-story command."""
+    
+    def _get_github_token(self) -> str:
+        """
+        Get GitHub token from multiple sources
+        """
+        # Try Doppler first
+        try:
+            result = subprocess.run(
+                ["doppler", "secrets", "get", "GITHUB_TOKEN", "--plain"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        
+        # Try environment variable
+        env_token = os.environ.get("GITHUB_TOKEN", "")
+        if env_token:
+            return env_token
+        
+        # Try GitHub CLI as fallback
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "token"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        
+        return ""
     
     def get_session_status(self, session_id: str) -> Dict:
         """Get current status of a development agent session"""

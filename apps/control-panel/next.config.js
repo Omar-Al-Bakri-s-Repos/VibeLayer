@@ -7,6 +7,7 @@ const withPWA = require('next-pwa')({
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   experimental: {
     transpilePackages: ['@vibelayer/shared', '@vibelayer/agents', '@vibelayer/overlay'],
   },

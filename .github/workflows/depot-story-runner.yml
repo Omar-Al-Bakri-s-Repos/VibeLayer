@@ -1,0 +1,125 @@
+name: Depot Story Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      stories:
+        description: 'Stories to run (comma-separated, e.g., 1.1,1.2,1.3 or all)'
+        required: true
+        default: 'all'
+        type: string
+      parallel:
+        description: 'Run stories in parallel'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  run-story-agents:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    strategy:
+      matrix:
+        story:
+          - '1.1'
+          - '1.2'
+          - '1.3'
+          - '1.4'
+          - '1.5'
+          - '1.6'
+          - '1.7'
+          - '1.8'
+      max-parallel: ${{ github.event.inputs.parallel == 'true' && 8 || 1 }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: depot/setup-action@v1
+      
+      - name: Check if story should run
+        id: should_run
+        run: |
+          if [ "${{ github.event.inputs.stories }}" = "all" ]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          elif echo "${{ github.event.inputs.stories }}" | grep -q "${{ matrix.story }}"; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Read story content
+        if: steps.should_run.outputs.run == 'true'
+        id: story_content
+        run: |
+          STORY_FILE=".bmad/stories/${{ matrix.story }}.*"
+          if ls $STORY_FILE 1> /dev/null 2>&1; then
+            STORY_PATH=$(ls $STORY_FILE | head -n1)
+            echo "path=$STORY_PATH" >> $GITHUB_OUTPUT
+            # Read and prepare prompt
+            echo "STORY_PROMPT<<EOF" >> $GITHUB_ENV
+            echo "You are a Claude development agent working on Epic 1: MVP Core Platform." >> $GITHUB_ENV
+            echo "Your task is to implement Story ${{ matrix.story }} completely." >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "IMPORTANT: You must:" >> $GITHUB_ENV
+            echo "1. Read and understand the story requirements below" >> $GITHUB_ENV
+            echo "2. Check existing code to understand the current state" >> $GITHUB_ENV
+            echo "3. Implement ALL acceptance criteria" >> $GITHUB_ENV
+            echo "4. Create all necessary files and tests" >> $GITHUB_ENV
+            echo "5. Commit your changes with descriptive messages" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "Story Content:" >> $GITHUB_ENV
+            cat "$STORY_PATH" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          else
+            echo "Story file not found for ${{ matrix.story }}"
+            exit 1
+          fi
+      
+      - name: Run Depot Claude Agent
+        if: steps.should_run.outputs.run == 'true'
+        env:
+          DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+        run: |
+          SESSION_ID="story-${{ matrix.story }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          
+          echo "Starting Depot Claude agent for Story ${{ matrix.story }}..."
+          echo "Session ID: $SESSION_ID"
+          
+          # Run agent with story prompt
+          depot claude \
+            --session-id "$SESSION_ID" \
+            --repository "${{ github.server_url }}/${{ github.repository }}" \
+            --branch "${{ github.ref_name }}" \
+            --commit <<< "$STORY_PROMPT"
+          
+          echo "Agent completed for Story ${{ matrix.story }}"
+      
+      - name: Create PR if changes exist
+        if: steps.should_run.outputs.run == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if there are changes
+          if [ -n "$(git status --porcelain)" ]; then
+            BRANCH_NAME="story-${{ matrix.story }}-${{ github.run_id }}"
+            
+            git config --global user.name "GitHub Actions"
+            git config --global user.email "actions@github.com"
+            
+            git checkout -b "$BRANCH_NAME"
+            git add -A
+            git commit -m "Implement Story ${{ matrix.story }} via Depot Agent"
+            git push origin "$BRANCH_NAME"
+            
+            # Create PR
+            gh pr create \
+              --title "Story ${{ matrix.story }}: Implementation via Depot Agent" \
+              --body "Automated implementation of Story ${{ matrix.story }} by Depot Claude agent.\n\nSession ID: story-${{ matrix.story }}-${{ github.run_id }}-${{ github.run_attempt }}" \
+              --base main \
+              --head "$BRANCH_NAME"
+          else
+            echo "No changes detected for Story ${{ matrix.story }}"
+          fi

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "project": {
+    "id": "frhsr3strf"
+  },
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".",
+    "platforms": ["linux/amd64", "linux/arm64"],
+    "buildArgs": {
+      "NODE_ENV": "production"
+    }
+  },
+  "targets": {
+    "control-panel": {
+      "dockerfile": "apps/control-panel/Dockerfile",
+      "context": "apps/control-panel",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "monorepo": {
+      "dockerfile": "Dockerfile",
+      "context": ".",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "dev": {
+      "dockerfile": "Dockerfile",
+      "target": "builder",
+      "context": ".",
+      "platforms": ["linux/amd64"]
+    }
+  }
+}

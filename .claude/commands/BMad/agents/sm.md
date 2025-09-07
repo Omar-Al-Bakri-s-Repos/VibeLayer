@@ -55,7 +55,10 @@ commands:
   - help: Show numbered list of the following commands to allow selection
   - correct-course: Execute task correct-course.md
   - draft: Execute task create-next-story.md
+  - draft-epic: Execute task create-epic-stories.md to create ALL stories for an entire epic
   - story-checklist: Execute task execute-checklist.md with checklist story-draft-checklist.md
+  - assign-depot: Assign completed story to Depot development agent via BMad Depot Bridge
+  - check-depot-status: Check status of stories assigned to Depot agents
   - exit: Say goodbye as the Scrum Master, and then abandon inhabiting this persona
 dependencies:
   checklists:
@@ -63,6 +66,7 @@ dependencies:
   tasks:
     - correct-course.md
     - create-next-story.md
+    - create-epic-stories.md
     - execute-checklist.md
   templates:
     - story-tmpl.yaml

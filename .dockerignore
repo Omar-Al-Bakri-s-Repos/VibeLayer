@@ -1,0 +1,81 @@
+# Git
+.git
+.gitignore
+.github
+
+# Development
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Dependencies
+node_modules
+.pnpm-store
+.yarn
+
+# Build outputs
+.next
+.turbo
+dist
+build
+out
+
+# Testing
+coverage
+.nyc_output
+test-results
+playwright-report
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Documentation
+*.md
+!README.md
+docs
+.build_docs
+
+# BMAD/Depot specific
+.bmad
+.bmad-core
+.bmad-infrastructure-devops
+.depot/sessions
+.depot/artifacts
+.depot/logs
+scripts/depot
+
+# Serena
+.serena
+
+# Mobile apps (not needed for web build)
+apps/mobile-android
+apps/mobile-ios
+
+# Temporary files
+tmp
+temp
+.cache
+
+# IDE
+.cursor
+
+# TypeScript
+*.tsbuildinfo
+
+# Package manager files
+!pnpm-lock.yaml
+!package.json
+!pnpm-workspace.yaml

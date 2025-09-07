@@ -1,4 +1,4 @@
-name: VibeLayer BMAD-Depot Development Pipeline
+nname: VibeLayer BMAD-Depot Development Pipeline
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
           - spawn-single-agent
           - monitor-sessions
           - cleanup-sessions
-        default: 'coordinate-development'
+        
       story_file:
         description: 'Story file path (for spawn-single-agent)'
         required: false
@@ -56,15 +56,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Depot
+        uses: depot/setup-action@v1
+
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install Depot CLI
-        run: |
-          curl -L https://depot.dev/install-cli.sh | sh
-          echo "$HOME/.depot/bin" >> $GITHUB_PATH
 
       - name: Validate environment
         id: validate
@@ -86,7 +84,7 @@ jobs:
           fi
           
           # Make scripts executable
-          chmod +x scripts/depot/*.py
+          chmod +x scripts/depot/*.py 2>/dev/null || true
           
           echo "✅ Environment validation passed"
           echo "proceed=true" >> $GITHUB_OUTPUT
@@ -99,6 +97,9 @@ jobs:
       contents: write
       pull-requests: write
       id-token: write
+    outputs:
+      action_success: ${{ steps.bmad_action.outputs.action_success }}
+      result_status: ${{ steps.bmad_action.outputs.result_status }}
 
     steps:
       - name: Checkout repository
@@ -107,15 +108,18 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Setup Depot
+        uses: depot/setup-action@v1
+
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install Depot CLI
+      - name: Install Python dependencies
         run: |
-          curl -L https://depot.dev/install-cli.sh | sh
-          echo "$HOME/.depot/bin" >> $GITHUB_PATH
+          python -m pip install --upgrade pip
+          pip install pyyaml requests
 
       - name: Configure Depot Authentication
         env:
@@ -127,10 +131,13 @@ jobs:
             exit 1
           fi
           
-          depot login --token "$DEPOT_TOKEN"
+          # Configure depot with token
+          mkdir -p ~/.depot
+          echo "$DEPOT_TOKEN" > ~/.depot/token
           
           if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "✅ Claude Code OAuth token configured"
+            echo "$CLAUDE_CODE_OAUTH_TOKEN" > ~/.depot/claude_token
           else
             echo "⚠️  Claude Code OAuth token not configured - some features may not work"
           fi
@@ -138,26 +145,34 @@ jobs:
       - name: Execute BMAD-Depot Action
         id: bmad_action
         env:
-          ACTION: ${{ inputs.action || 'coordinate-development' }}
-          STORY_FILE: ${{ inputs.story_file }}
-          STORY_ID: ${{ inputs.story_id }}
-          MAX_CONCURRENT: ${{ inputs.max_concurrent || '5' }}
-          STORIES_DIR: ${{ inputs.stories_dir }}
+          ACTION: ${{ github.event.inputs.action || 'coordinate-development' }}
+          STORY_FILE: ${{ github.event.inputs.story_file }}
+          STORY_ID: ${{ github.event.inputs.story_id }}
+          MAX_CONCURRENT: ${{ github.event.inputs.max_concurrent || '5' }}
+          STORIES_DIR: ${{ github.event.inputs.stories_dir }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
+          DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           echo "🚀 Executing BMAD-Depot action: $ACTION"
           
           # Make scripts executable
-          chmod +x scripts/depot/*.py
+          chmod +x scripts/depot/*.py 2>/dev/null || true
+          
+          # Create output directory
+          mkdir -p .depot/{sessions,logs,artifacts}
           
           # Determine command based on action
           case "$ACTION" in
             "coordinate-development")
               echo "📦 Coordinating parallel development..."
               if [ -n "$STORIES_DIR" ]; then
-                python3 scripts/depot/bmad_depot_bridge.py coordinate --stories-dir "$STORIES_DIR" --max-concurrent "$MAX_CONCURRENT" > action_result.json
+                python3 scripts/depot/bmad_depot_bridge.py coordinate \
+                  --stories-dir "$STORIES_DIR" \
+                  --max-concurrent "$MAX_CONCURRENT" > action_result.json 2>&1
               else
-                python3 scripts/depot/bmad_depot_bridge.py coordinate --max-concurrent "$MAX_CONCURRENT" > action_result.json
+                python3 scripts/depot/bmad_depot_bridge.py coordinate \
+                  --max-concurrent "$MAX_CONCURRENT" > action_result.json 2>&1
               fi
               ;;
             "spawn-single-agent")
@@ -167,18 +182,22 @@ jobs:
               fi
               echo "🤖 Spawning development agent for story: $STORY_FILE"
               if [ -n "$STORY_ID" ]; then
-                python3 scripts/depot/bmad_depot_bridge.py spawn-dev --story-file "$STORY_FILE" --story-id "$STORY_ID" > action_result.json
+                python3 scripts/depot/bmad_depot_bridge.py spawn-dev \
+                  --story-file "$STORY_FILE" \
+                  --story-id "$STORY_ID" > action_result.json 2>&1
               else
-                python3 scripts/depot/bmad_depot_bridge.py spawn-dev --story-file "$STORY_FILE" > action_result.json
+                python3 scripts/depot/bmad_depot_bridge.py spawn-dev \
+                  --story-file "$STORY_FILE" > action_result.json 2>&1
               fi
               ;;
             "monitor-sessions")
               echo "📊 Monitoring active development sessions..."
-              python3 scripts/depot/bmad_depot_bridge.py monitor --timeout 15 > action_result.json
+              python3 scripts/depot/bmad_depot_bridge.py monitor \
+                --timeout 15 > action_result.json 2>&1
               ;;
             "cleanup-sessions")
               echo "🧹 Cleaning up old sessions..."
-              python3 scripts/depot/bmad_depot_bridge.py cleanup > action_result.json
+              python3 scripts/depot/bmad_depot_bridge.py cleanup > action_result.json 2>&1
               ;;
             *)
               echo "❌ Unknown action: $ACTION"
@@ -197,12 +216,18 @@ jobs:
           
           # Extract key information from result
           if [ -f "action_result.json" ]; then
-            cat action_result.json | jq '.'
+            # Check if jq is available, install if not
+            if ! command -v jq >/dev/null 2>&1; then
+              echo "Installing jq..."
+              sudo apt-get update && sudo apt-get install -y jq
+            fi
+            
+            cat action_result.json | jq '.' || cat action_result.json
             
             # Extract summary information
             if command -v jq >/dev/null 2>&1; then
-              SUCCESS=$(jq -r '.success // false' action_result.json)
-              MESSAGE=$(jq -r '.message // "No message"' action_result.json)
+              SUCCESS=$(jq -r '.success // false' action_result.json 2>/dev/null || echo "false")
+              MESSAGE=$(jq -r '.message // "No message"' action_result.json 2>/dev/null || echo "No message")
               
               echo "action_success=$SUCCESS" >> $GITHUB_OUTPUT
               echo "action_message=$MESSAGE" >> $GITHUB_OUTPUT
@@ -219,13 +244,14 @@ jobs:
             .depot/sessions/*.json
             .depot/logs/*.log
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Create Job Summary
         if: always()
         run: |
           echo "# 🌉 BMAD-Depot Pipeline Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Action:** ${{ inputs.action || 'coordinate-development' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Action:** ${{ github.event.inputs.action || 'coordinate-development' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** ${{ steps.bmad_action.outputs.result_status || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -251,18 +277,23 @@ jobs:
             let resultContent = "## 🌉 BMAD-Depot Development Results\n\n";
             
             if (fs.existsSync('action_result.json')) {
-              const result = JSON.parse(fs.readFileSync('action_result.json', 'utf8'));
-              
-              resultContent += `**Action:** ${{ inputs.action || 'coordinate-development' }}\n`;
-              resultContent += `**Status:** ${result.success ? '✅ Success' : '❌ Failed'}\n`;
-              resultContent += `**Message:** ${result.message || 'No message'}\n\n`;
-              
-              if (result.coordination_result) {
-                resultContent += `**Sessions Spawned:** ${result.coordination_result.sessions_spawned || 0}\n`;
-                resultContent += `**Total Stories:** ${result.coordination_result.total_stories || 0}\n`;
+              try {
+                const result = JSON.parse(fs.readFileSync('action_result.json', 'utf8'));
+                
+                resultContent += `**Action:** ${{ github.event.inputs.action || 'coordinate-development' }}\n`;
+                resultContent += `**Status:** ${result.success ? '✅ Success' : '❌ Failed'}\n`;
+                resultContent += `**Message:** ${result.message || 'No message'}\n\n`;
+                
+                if (result.coordination_result) {
+                  resultContent += `**Sessions Spawned:** ${result.coordination_result.sessions_spawned || 0}\n`;
+                  resultContent += `**Total Stories:** ${result.coordination_result.total_stories || 0}\n`;
+                }
+                
+                resultContent += `\n<details><summary>Full Results</summary>\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n</details>`;
+              } catch (e) {
+                console.error('Failed to parse action_result.json:', e);
+                resultContent += "**Error:** Failed to parse results\n";
               }
-              
-              resultContent += `\n<details><summary>Full Results</summary>\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n</details>`;
             }
             
             github.rest.issues.createComment({
@@ -272,6 +303,57 @@ jobs:
               body: resultContent
             });
 
+  depot-docker-build:
+    needs: [validate-environment, execute-bmad-depot-action]
+    if: |
+      always() && 
+      needs.execute-bmad-depot-action.outputs.action_success == 'true' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Depot
+        uses: depot/setup-action@v1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Docker image with Depot
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          project: ${{ secrets.DEPOT_PROJECT_ID }}
+
   notify-completion:
     needs: [validate-environment, execute-bmad-depot-action]
     if: always()
@@ -280,7 +362,23 @@ jobs:
       - name: Workflow Summary
         run: |
           echo "🔔 BMAD-Depot Pipeline Completed"
-          echo "Action: ${{ inputs.action || 'coordinate-development' }}"
+          echo "Action: ${{ github.event.inputs.action || 'coordinate-development' }}"
           echo "Status: ${{ needs.execute-bmad-depot-action.result }}"
           echo "Repository: ${{ github.repository }}"
           echo "Branch: ${{ github.ref_name }}"
+          
+      - name: Send notification (if configured)
+        if: failure() && vars.SLACK_WEBHOOK_URL
+        run: |
+          curl -X POST ${{ vars.SLACK_WEBHOOK_URL }} \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "BMAD-Depot Pipeline Failed",
+              "blocks": [{
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "*Pipeline Failed* :x:\n*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref_name }}\n*Action:* ${{ github.event.inputs.action || 'coordinate-development' }}"
+                }
+              }]
+            }'

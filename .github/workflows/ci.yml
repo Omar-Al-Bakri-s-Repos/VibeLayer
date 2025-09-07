@@ -9,6 +9,7 @@ on:
 env:
   NODE_VERSION: '18'
   PNPM_VERSION: '9'
+  DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
 
 jobs:
   test:
@@ -44,6 +45,10 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pnpm-store-
           
+    - name: Install Doppler CLI
+      run: |
+        curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh | sudo sh
+        
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
       
@@ -101,6 +106,10 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pnpm-store-
           
+    - name: Install Doppler CLI
+      run: |
+        curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh | sudo sh
+        
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
       
@@ -143,6 +152,10 @@ jobs:
         version: ${{ env.PNPM_VERSION }}
         run_install: false
         
+    - name: Install Doppler CLI
+      run: |
+        curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh | sudo sh
+        
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
       
@@ -177,14 +190,28 @@ jobs:
         version: ${{ env.PNPM_VERSION }}
         run_install: false
         
+    - name: Install Doppler CLI
+      run: |
+        curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.doppler.com/install.sh | sudo sh
+        
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
       
+    - name: Setup Doppler secrets
+      run: |
+        doppler setup --project vibelayer --config ci
+        eval $(doppler secrets download --no-file --format env)
+      env:
+        DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        
     - name: Build for production
-      run: pnpm build
+      run: doppler run -- pnpm build
       env:
         NODE_ENV: production
+        DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         
     - name: Deploy to staging
-      run: echo "Deploy to staging environment"
+      run: doppler run -- echo "Deploy to staging environment"
       # Add actual deployment commands here
+      env:
+        DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}

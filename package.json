@@ -18,7 +18,15 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "turbo build --filter=docs^... && changeset publish"
+    "release": "turbo build --filter=docs^... && changeset publish",
+    "docker:build": "depot build -t vibelayer:latest .",
+    "docker:build:local": "depot build -t vibelayer:latest . --load",
+    "docker:build:push": "depot build -t vibelayer:latest . --push",
+    "docker:dev": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "depot:init": "depot init",
+    "depot:login": "depot login"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.9",
