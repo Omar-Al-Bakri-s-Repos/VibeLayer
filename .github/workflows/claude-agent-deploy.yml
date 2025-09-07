@@ -94,12 +94,13 @@ jobs:
 
           START: Read CLAUDE.md, then your story file, then implement using Depot build framework."
 
-          # Deploy agent using Depot infrastructure
+          # Deploy agent using Depot infrastructure  
           depot claude \
             --session-id "${SESSION_ID}" \
             --repository "${{ github.server_url }}/${{ github.repository }}" \
             --branch "${{ github.ref_name }}" \
             --git-secret "GIT_CREDENTIALS" \
+            --token "${{ secrets.DEPOT_TOKEN }}" \
             "${AGENT_PROMPT}"
 
           echo "session_id=${SESSION_ID}" >> $GITHUB_OUTPUT
