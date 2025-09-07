@@ -1,0 +1,87 @@
+name: Deploy VibeLayerAI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code with SSH key
+        uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          fetch-depth: 0  # Fetch all history for all branches and tags
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.15.0
+          
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+        continue-on-error: true  # Don't fail if tests don't exist yet
+
+      - name: Build project
+        run: pnpm build
+        continue-on-error: true  # Don't fail if build isn't configured yet
+
+      - name: Deploy to staging (if main branch)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "Would deploy to staging here"
+          # Add your deployment commands here
+          
+  # Additional job for depot agents if needed
+  deploy-agents:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          
+      - name: Setup SSH for depot agents
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          
+          # Configure git to use SSH
+          git config --global url."git@github.com:".insteadOf "https://github.com/"
+          git config --global user.name "VibeLayer Agent"
+          git config --global user.email "agent@vibelayer.ai"
+          
+      - name: Deploy depot agents
+        run: |
+          echo "Depot agent deployment would go here"
+          # You can add depot agent deployment commands here
