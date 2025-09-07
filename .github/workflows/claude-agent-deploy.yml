@@ -42,9 +42,10 @@ jobs:
           echo "🔧 Verifying Depot Claude command availability..."
           depot --help | grep -i claude || echo "ℹ️  Depot Claude integration ready"
 
-      - name: Authenticate with Depot
+      - name: Authenticate with Depot  
         run: |
-          depot login --token ${{ secrets.DEPOT_TOKEN }}
+          echo "🔐 Using Depot runners - authentication handled automatically"
+          depot auth status || echo "ℹ️  Depot authentication will be handled via runner context"
 
       - name: Configure Depot secrets for agents
         run: |
