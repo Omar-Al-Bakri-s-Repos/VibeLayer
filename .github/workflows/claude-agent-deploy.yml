@@ -100,6 +100,7 @@ jobs:
             --repository "${{ github.server_url }}/${{ github.repository }}" \
             --branch "${{ github.ref_name }}" \
             --git-secret "GIT_CREDENTIALS" \
+            --claude-secret "CLAUDE_CODE_OAUTH_TOKEN" \
             --token "${{ secrets.DEPOT_TOKEN }}" \
             "${AGENT_PROMPT}"
 
