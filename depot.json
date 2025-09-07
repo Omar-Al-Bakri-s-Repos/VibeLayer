@@ -27,6 +27,16 @@
       "target": "builder",
       "context": ".",
       "platforms": ["linux/amd64"]
+    },
+    "claude-agent": {
+      "dockerfile": "Dockerfile",
+      "target": "builder",
+      "context": ".",
+      "platforms": ["linux/amd64"],
+      "buildArgs": {
+        "NODE_ENV": "development",
+        "ENABLE_DEV_TOOLS": "true"
+      }
     }
   }
 }

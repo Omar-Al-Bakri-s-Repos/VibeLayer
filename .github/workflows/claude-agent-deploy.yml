@@ -1,0 +1,162 @@
+name: Deploy Claude Code Agents with Depot
+
+on:
+  workflow_dispatch:
+    inputs:
+      story:
+        description: 'Story to deploy (1.1, 1.2, etc. or "all")'
+        required: true
+        type: string
+        default: '1.1'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/stories/*.md'
+      - '.github/workflows/claude-agent-deploy.yml'
+
+env:
+  DEPOT_PROJECT_ID: frhsr3strf
+
+jobs:
+  deploy-agent:
+    name: Deploy Claude Code Agent
+    runs-on: depot-ubuntu-22.04-8
+    timeout-minutes: 60
+    
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Depot CLI
+        uses: depot/setup-action@v1
+
+      - name: Install Claude Code
+        run: |
+          curl -fsSL https://claude.ai/install.sh | sh
+          echo "$HOME/.claude/bin" >> $GITHUB_PATH
+
+      - name: Authenticate with Depot
+        run: |
+          depot login --token ${{ secrets.DEPOT_TOKEN }}
+
+      - name: Configure Depot secrets for agents
+        run: |
+          # Verify required secrets exist
+          depot claude secrets list
+          
+      - name: Determine story to deploy
+        id: story
+        run: |
+          STORY="${{ github.event.inputs.story || '1.1' }}"
+          echo "story=${STORY}" >> $GITHUB_OUTPUT
+          echo "session_id=vibelayer-story-${STORY}-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Deploy Claude Code Agent
+        id: deploy
+        run: |
+          STORY="${{ steps.story.outputs.story }}"
+          SESSION_ID="${{ steps.story.outputs.session_id }}"
+          
+          echo "🚀 Deploying Claude Code Agent for Story ${STORY}"
+          echo "📂 Repository: ${{ github.server_url }}/${{ github.repository }}"
+          echo "🆔 Session ID: ${SESSION_ID}"
+          
+          # Create agent prompt based on story
+          AGENT_PROMPT="You are James, VibeLayer's Full Stack Developer implementing Story ${STORY}.
+
+          🎯 MISSION:
+          1. Read your configuration: CLAUDE.md (contains complete instructions)
+          2. Read your story: docs/stories/${STORY}.*.md
+          3. Implement the requirements following VibeLayer patterns
+          4. Use MCP tools (Serena, Desktop Commander) for enhanced development
+          5. Update Dev Agent Record sections in story file with progress
+
+          🏗️ VIBELAYER CONTEXT:
+          - Monorepo with Turbo build system (already configured)
+          - Depot build acceleration (frhsr3strf project)
+          - Next.js control panel in apps/control-panel/
+          - TypeScript + Tailwind + Convex backend
+          - Existing depot.json and Dockerfile for containerized builds
+
+          🔧 DEPOT INTEGRATION:
+          - Use 'depot build' commands for building containers
+          - Follow existing depot.json configuration
+          - Leverage multi-platform builds (linux/amd64, linux/arm64)
+          - Use depot caching for faster builds
+
+          START: Read CLAUDE.md, then your story file, then implement using Depot build framework."
+
+          # Deploy agent using Depot infrastructure
+          depot claude \
+            --session-id "${SESSION_ID}" \
+            --repository "${{ github.server_url }}/${{ github.repository }}" \
+            --branch "${{ github.ref_name }}" \
+            --git-secret "GIT_CREDENTIALS" \
+            "${AGENT_PROMPT}"
+
+          echo "session_id=${SESSION_ID}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Issue for Tracking
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const story = '${{ steps.story.outputs.story }}';
+            const sessionId = '${{ steps.deploy.outputs.session_id }}';
+            const depotLink = `https://depot.dev/orgs/h0wmrqw8rk/claude/${sessionId}`;
+            
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🤖 Claude Agent: Story ${story} Implementation`,
+              body: `## Claude Code Agent Deployed
+              
+              **Story**: ${story}
+              **Session ID**: \`${sessionId}\`
+              **Depot Link**: ${depotLink}
+              **Status**: 🟢 Active
+              
+              ## Agent Configuration
+              - **Configuration**: CLAUDE.md (Claude Code format)
+              - **MCP Tools**: Serena (code analysis), Desktop Commander (file ops)
+              - **Build Framework**: Depot (project: frhsr3strf)
+              - **Repository Access**: Full VibeLayer monorepo
+              
+              ## Monitoring
+              - Track progress at [Depot Dashboard](${depotLink})
+              - Agent will update story file Dev Agent Record sections
+              - Close this issue when story implementation is complete
+              
+              ## Next Steps
+              1. Monitor agent progress in Depot dashboard
+              2. Review code changes and PRs created by agent
+              3. Test implemented features
+              4. Mark story as complete when done
+              `,
+              labels: ['claude-agent', 'depot', `story-${story}`, 'automated']
+            });
+            
+            console.log(`Created tracking issue #${issue.data.number}`);
+
+      - name: Post deployment summary
+        if: always()
+        run: |
+          echo "## 📊 Claude Agent Deployment Summary"
+          echo "- **Story**: ${{ steps.story.outputs.story }}"
+          echo "- **Session ID**: ${{ steps.deploy.outputs.session_id }}"
+          echo "- **Status**: ${{ job.status }}"
+          echo "- **Depot Project**: ${{ env.DEPOT_PROJECT_ID }}"
+          echo "- **Build Framework**: Integrated with existing depot.json"
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Agent deployed successfully and ready for implementation"
+          else
+            echo "❌ Deployment failed - check logs above"
+          fi

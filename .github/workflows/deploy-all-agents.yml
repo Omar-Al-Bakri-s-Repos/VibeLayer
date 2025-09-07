@@ -1,0 +1,271 @@
+name: Deploy All Claude Code Agents
+
+on:
+  workflow_dispatch:
+    inputs:
+      stories:
+        description: 'Stories to deploy (comma-separated like "1.1,1.2" or "all" for all stories)'
+        required: true
+        type: string
+        default: 'all'
+      force_redeploy:
+        description: 'Force redeploy even if agents already exist'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  DEPOT_PROJECT_ID: frhsr3strf
+
+jobs:
+  deploy-agents:
+    name: Deploy Multiple Claude Code Agents
+    runs-on: depot-ubuntu-22.04-8
+    timeout-minutes: 120
+    
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Depot CLI
+        uses: depot/setup-action@v1
+
+      - name: Authenticate with Depot
+        run: |
+          depot login --token ${{ secrets.DEPOT_TOKEN }}
+
+      - name: Configure Depot secrets for agents
+        run: |
+          # Verify required secrets exist for Claude agents
+          echo "🔐 Verifying Depot secrets configuration..."
+          depot claude secrets list || echo "Warning: Unable to list secrets"
+
+      - name: Determine stories to deploy
+        id: stories
+        run: |
+          INPUT_STORIES="${{ github.event.inputs.stories }}"
+          BASE_SESSION_ID="vibelayer-multi-$(date +%Y%m%d-%H%M%S)"
+          
+          if [[ "$INPUT_STORIES" == "all" ]]; then
+            STORIES="1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8"
+          else
+            STORIES="$INPUT_STORIES"
+          fi
+          
+          echo "stories=${STORIES}" >> $GITHUB_OUTPUT
+          echo "base_session_id=${BASE_SESSION_ID}" >> $GITHUB_OUTPUT
+          echo "🎯 Deploying stories: ${STORIES}"
+
+      - name: Deploy Claude Code Agents
+        id: deploy
+        run: |
+          STORIES="${{ steps.stories.outputs.stories }}"
+          BASE_SESSION_ID="${{ steps.stories.outputs.base_session_id }}"
+          FORCE_REDEPLOY="${{ github.event.inputs.force_redeploy }}"
+          
+          echo "🚀 Multi-Agent Deployment Starting"
+          echo "📂 Repository: ${{ github.server_url }}/${{ github.repository }}"
+          echo "🔧 Depot Project: ${{ env.DEPOT_PROJECT_ID }}"
+          echo "🆔 Base Session: ${BASE_SESSION_ID}"
+          echo "🎯 Stories: ${STORIES}"
+          echo ""
+          
+          # Convert comma-separated stories to array
+          IFS=',' read -ra STORY_ARRAY <<< "$STORIES"
+          DEPLOYED_AGENTS=()
+          FAILED_DEPLOYMENTS=()
+          
+          for STORY in "${STORY_ARRAY[@]}"; do
+            STORY=$(echo "$STORY" | xargs) # trim whitespace
+            SESSION_ID="${BASE_SESSION_ID}-story-${STORY}"
+            
+            echo "🤖 Deploying Agent for Story ${STORY}..."
+            echo "   🆔 Session ID: ${SESSION_ID}"
+            
+            # Check if story file exists
+            STORY_FILE=$(find docs/stories -name "${STORY}.*.md" | head -1 || echo "")
+            if [[ -z "$STORY_FILE" ]]; then
+              echo "   ⚠️  Warning: Story ${STORY} not found in docs/stories/ - skipping"
+              FAILED_DEPLOYMENTS+=("${STORY}:file_not_found")
+              continue
+            fi
+            
+            echo "   📄 Story file: $STORY_FILE"
+            
+            # Create comprehensive agent prompt
+            AGENT_PROMPT="You are James, VibeLayer's Full Stack Developer implementing Story ${STORY} using Depot build infrastructure.
+
+🎯 MISSION BRIEFING:
+1. Read CLAUDE.md (your configuration and persona)
+2. Read ${STORY_FILE} (your assigned story requirements)  
+3. Implement story requirements using Depot build framework
+4. Update Dev Agent Record sections in story file with progress
+
+🏗️ VIBELAYER DEPOT INTEGRATION:
+- Monorepo with Turbo build system (pre-configured)
+- Depot build acceleration (project: ${{ env.DEPOT_PROJECT_ID }})
+- Next.js control panel in apps/control-panel/
+- TypeScript + Tailwind + Convex backend
+- depot.json configuration with optimized targets
+
+🔧 DEPOT BUILD COMMANDS:
+- depot build --project ${{ env.DEPOT_PROJECT_ID }} -t vibelayer:test .
+- depot build --project ${{ env.DEPOT_PROJECT_ID }} --target control-panel
+- depot build --project ${{ env.DEPOT_PROJECT_ID }} --target claude-agent --load
+- Follow multi-platform builds: linux/amd64, linux/arm64
+
+🛠️ MCP DEVELOPMENT TOOLS:
+- Serena: Semantic code analysis, symbol-level editing, architecture understanding
+- Desktop Commander: File operations, process management, system interactions
+- Enhanced development workflow with intelligent assistance
+
+⚠️ IMPLEMENTATION REQUIREMENTS:
+- Use Depot build acceleration, not regular Docker
+- Follow existing depot.json configuration exactly
+- Update Dev Agent Record sections with detailed progress
+- Implement comprehensive testing before completion
+- Follow VibeLayer coding patterns and best practices
+- Create tests that validate story acceptance criteria
+
+🎯 SUCCESS DEFINITION:
+- All story requirements implemented and tested
+- Dev Agent Record shows completion with details
+- Code follows VibeLayer architectural patterns
+- All tests pass in Depot build environment
+
+START: Read CLAUDE.md first, then ${STORY_FILE}, then implement using Depot framework."
+
+            # Deploy agent using Depot infrastructure
+            if depot claude \
+              --session-id "${SESSION_ID}" \
+              --repository "${{ github.server_url }}/${{ github.repository }}" \
+              --branch "${{ github.ref_name }}" \
+              --git-secret "GIT_CREDENTIALS" \
+              "${AGENT_PROMPT}"; then
+              
+              DEPLOYED_AGENTS+=("${STORY}:${SESSION_ID}")
+              echo "   ✅ Agent ${STORY} deployed successfully"
+              echo "   🔗 Monitor: https://depot.dev/orgs/h0wmrqw8rk/claude/${SESSION_ID}"
+            else
+              echo "   ❌ Failed to deploy agent for story ${STORY}"
+              FAILED_DEPLOYMENTS+=("${STORY}:deploy_failed")
+            fi
+            
+            echo ""
+            sleep 3 # Brief pause between deployments
+          done
+          
+          # Output results for GitHub Actions
+          echo "deployed_count=${#DEPLOYED_AGENTS[@]}" >> $GITHUB_OUTPUT
+          echo "failed_count=${#FAILED_DEPLOYMENTS[@]}" >> $GITHUB_OUTPUT
+          echo "total_stories=${#STORY_ARRAY[@]}" >> $GITHUB_OUTPUT
+          
+          # Create deployment summary
+          echo "## 📊 MULTI-AGENT DEPLOYMENT SUMMARY" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Stories**: ${#STORY_ARRAY[@]}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Successfully Deployed**: ${#DEPLOYED_AGENTS[@]}" >> $GITHUB_STEP_SUMMARY  
+          echo "- **Failed Deployments**: ${#FAILED_DEPLOYMENTS[@]}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Depot Project**: ${{ env.DEPOT_PROJECT_ID }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ ${#DEPLOYED_AGENTS[@]} -gt 0 ]]; then
+            echo "### 🤖 Active Agents:" >> $GITHUB_STEP_SUMMARY
+            for agent in "${DEPLOYED_AGENTS[@]}"; do
+              IFS=':' read -r story session <<< "$agent"
+              echo "- **Story ${story}**: [Monitor](https://depot.dev/orgs/h0wmrqw8rk/claude/${session})" >> $GITHUB_STEP_SUMMARY
+            done
+          fi
+          
+          if [[ ${#FAILED_DEPLOYMENTS[@]} -gt 0 ]]; then
+            echo "### ❌ Failed Deployments:" >> $GITHUB_STEP_SUMMARY
+            for failure in "${FAILED_DEPLOYMENTS[@]}"; do
+              IFS=':' read -r story reason <<< "$failure"
+              echo "- **Story ${story}**: ${reason}" >> $GITHUB_STEP_SUMMARY
+            done
+          fi
+          
+          # Set overall job status
+          if [[ ${#DEPLOYED_AGENTS[@]} -eq 0 ]]; then
+            echo "❌ No agents deployed successfully"
+            exit 1
+          fi
+
+      - name: Create tracking issue for deployed agents
+        if: steps.deploy.outputs.deployed_count > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployedCount = '${{ steps.deploy.outputs.deployed_count }}';
+            const totalCount = '${{ steps.deploy.outputs.total_stories }}';
+            const baseSessionId = '${{ steps.stories.outputs.base_session_id }}';
+            const stories = '${{ steps.stories.outputs.stories }}';
+            
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🤖 Multi-Agent Deployment: ${deployedCount}/${totalCount} Claude Agents Active`,
+              body: `## Multi-Agent Claude Code Deployment
+              
+              **Deployment Summary:**
+              - **Stories Deployed**: ${deployedCount}/${totalCount}
+              - **Base Session**: \`${baseSessionId}\`
+              - **Stories**: ${stories}
+              - **Status**: 🟢 Active
+              - **Depot Project**: ${{ env.DEPOT_PROJECT_ID }}
+              
+              ## Agent Configuration
+              - **Framework**: Depot build acceleration with existing depot.json
+              - **MCP Tools**: Serena (code analysis), Desktop Commander (file ops)
+              - **Build System**: Turbo monorepo with pnpm workspaces
+              - **Repository Access**: Full VibeLayer codebase
+              
+              ## Monitoring
+              - **Depot Dashboard**: [View All Agents](https://depot.dev/orgs/h0wmrqw8rk/claude)
+              - **Build Framework**: Integrated with existing Depot configuration
+              - **Dev Agent Records**: Agents will update story file sections with progress
+              
+              ## Next Steps
+              1. Monitor agent progress in Depot dashboard
+              2. Review code changes and PRs created by agents
+              3. Test implemented features as they complete
+              4. Close this issue when all story implementations are complete
+              
+              Each agent is configured to:
+              - Read CLAUDE.md for persona and development guidelines
+              - Implement their assigned story requirements  
+              - Use Depot build commands for containerization
+              - Update Dev Agent Record sections with detailed progress
+              - Create comprehensive tests before marking complete
+              `,
+              labels: ['claude-agents', 'depot', 'multi-agent', 'automated', 'epic-1']
+            });
+            
+            console.log(\`Created multi-agent tracking issue #\${issue.data.number}\`);
+
+      - name: Post deployment results
+        if: always()
+        run: |
+          echo "## 🎯 Multi-Agent Deployment Complete"
+          echo "- **Total Requested**: ${{ steps.deploy.outputs.total_stories }}"
+          echo "- **Successfully Deployed**: ${{ steps.deploy.outputs.deployed_count }}"
+          echo "- **Failed**: ${{ steps.deploy.outputs.failed_count }}"
+          echo "- **Status**: ${{ job.status }}"
+          echo "- **Depot Project**: ${{ env.DEPOT_PROJECT_ID }}"
+          echo "- **Framework**: Integrated Depot build acceleration"
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            echo ""
+            echo "✅ Multi-agent deployment completed successfully!"
+            echo "🏗️ All agents integrated with existing Depot build framework"
+            echo "📊 Monitor all agents: https://depot.dev/orgs/h0wmrqw8rk/claude"
+          else
+            echo ""
+            echo "⚠️ Deployment completed with some issues - check logs above"
+          fi
